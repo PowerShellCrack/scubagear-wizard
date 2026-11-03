@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self'; script-src 'self'; img-src 'self' data:; base-uri 'none'; form-action 'none'">
+  <meta name="description" content="A guided wizard that tells you what to install, configure, and run to assess Microsoft 365 with ScubaGear.">
+  <title>ScubaGear Wizard</title>
+  <link rel="stylesheet" href="assets/css/styles.css">
+</head>
+<body>
+  <a class="skip" href="#main">Skip to content</a>
+  <header class="site-header">
+    <a class="brand" href="#/"><span class="brand-mark" aria-hidden="true">S</span> ScubaGear Wizard</a>
+    <nav aria-label="Primary">
+      <a href="#/guided/1">Guided setup</a>
+      <a href="#/quick">Quick answers</a>
+      <a href="https://github.com/cisagov/ScubaGear" target="_blank" rel="noopener noreferrer">ScubaGear on GitHub</a>
+    </nav>
+  </header>
+  <main id="main" tabindex="-1"></main>
+  <footer class="site-footer">
+    <p>Unofficial helper built from the public <a href="https://github.com/cisagov/ScubaGear/tree/main/docs" target="_blank" rel="noopener noreferrer">ScubaGear documentation</a>. It is not an official CISA product. Always confirm commands with <code>Get-Help</code> and the documentation for your installed version.</p>
+  </footer>
+  <noscript><p class="noscript">This wizard needs JavaScript. The ScubaGear documentation is at github.com/cisagov/ScubaGear.</p></noscript>
+  <script src="assets/js/util.js"></script>
+  <script src="assets/js/flows.js"></script>
+  <script src="assets/js/app.js"></script>
+</body>
+</html>
