@@ -54,6 +54,9 @@
       el('h2', { id: 'flow-h', text: 'How the tools fit together' }),
       el('p', { class: 'muted', text: 'Most people move left to right, then loop back through the analyzer until failures are explained.' }),
       toolchainSvg(),
+      el('h3', { text: 'Prefer automation? Add ScubaConnect' }),
+      el('p', { class: 'muted', text: 'ScubaConnect runs ScubaGear for you on a schedule, hosted by CISA or in your own Azure subscription. You still build and maintain the YAML config.' }),
+      automationSvg(),
     ]);
 
     const grid = el('div', { class: 'grid' }, SG.RECIPES.map((r) => el('a', { class: 'tile', href: '#/q/' + r.id }, [
@@ -82,13 +85,13 @@
     return el('ul', null, items.map((t) => inline(el('li'), t)));
   }
 
-  function toolchainSvg() {
+  function svgKit(viewBox, ariaLabel, markerId) {
     const NS = 'http://www.w3.org/2000/svg';
     const svg = document.createElementNS(NS, 'svg');
-    svg.setAttribute('viewBox', '0 0 1050 270');
+    svg.setAttribute('viewBox', viewBox);
     svg.setAttribute('class', 'toolchain');
     svg.setAttribute('role', 'img');
-    svg.setAttribute('aria-label', 'Show-SCuBABaselinePolicyViewer informs Start-SCuBAConfigApp or New-SCuBAConfig, which produces a config YAML for Invoke-SCuBA. Invoke-SCuBA produces an HTML report and ScubaResults.json for Start-SCuBAConfigAnalyzer, which feeds justified exclusions back to the config tool. Two results files can be compared with Invoke-SCuBADiff.');
+    svg.setAttribute('aria-label', ariaLabel);
     const mk = (tag, attrs, text) => {
       const n = document.createElementNS(NS, tag);
       Object.keys(attrs).forEach((k) => n.setAttribute(k, attrs[k]));
@@ -96,18 +99,37 @@
       return n;
     };
     const defs = mk('defs', {});
-    const marker = mk('marker', { id: 'arr', viewBox: '0 0 10 10', refX: '9', refY: '5', markerWidth: '7', markerHeight: '7', orient: 'auto-start-reverse' });
+    const marker = mk('marker', { id: markerId, viewBox: '0 0 10 10', refX: '9', refY: '5', markerWidth: '7', markerHeight: '7', orient: 'auto-start-reverse' });
     marker.appendChild(mk('path', { d: 'M0,0 L10,5 L0,10 z', class: 'tc-arrow' }));
     defs.appendChild(marker);
     svg.appendChild(defs);
-    const box = (x, y, w, lines) => {
+    const box = (x, y, w, lines, dashed) => {
       const g = mk('g', {});
-      g.appendChild(mk('rect', { x, y, width: w, height: 48, rx: 4, class: 'tc-box' }));
+      g.appendChild(mk('rect', { x, y, width: w, height: 48, rx: 4, class: dashed ? 'tc-box tc-dashed' : 'tc-box' }));
       lines.forEach((t, i) => g.appendChild(mk('text', { x: x + w / 2, y: y + (lines.length === 1 ? 29 : 21 + i * 15), 'text-anchor': 'middle', class: 'tc-text' }, t)));
       svg.appendChild(g);
     };
-    const path = (d) => svg.appendChild(mk('path', { d, class: 'tc-line', 'marker-end': 'url(#arr)' }));
+    const path = (d) => svg.appendChild(mk('path', { d, class: 'tc-line', 'marker-end': 'url(#' + markerId + ')' }));
     const label = (x, y, t) => svg.appendChild(mk('text', { x, y, 'text-anchor': 'middle', class: 'tc-label' }, t));
+    return { svg, box, path, label };
+  }
+
+  function automationSvg() {
+    const k = svgKit('0 0 1050 150', 'Your YAML config is uploaded to ScubaConnect, which is CISA-hosted or self-hosted. ScubaConnect scans on a schedule and writes ScubaResults.json to CyberScope or your Azure storage. From there you can analyze the results with Start-SCuBAConfigAnalyzer or Invoke-SCuBADiff, and self-hosted deployments can feed a Power BI report.', 'arr2');
+    k.path('M160,70 L230,70'); k.label(195, 60, 'upload YAML');
+    k.path('M440,70 L510,70'); k.label(475, 60, 'scheduled scans');
+    k.path('M760,60 L830,34'); k.path('M760,80 L830,110'); k.label(795, 76, 'results');
+    k.box(10, 46, 150, ['Config YAML']);
+    k.box(230, 46, 210, ['ScubaConnect', 'CISA-hosted or self-hosted']);
+    k.box(510, 46, 250, ['ScubaResults.json', 'CyberScope or your Azure storage']);
+    k.box(830, 10, 200, ['Config Analyzer / Diff']);
+    k.box(830, 86, 200, ['Power BI report', '(self-hosted)'], true);
+    return k.svg;
+  }
+
+  function toolchainSvg() {
+    const k = svgKit('0 0 1050 270', 'Show-SCuBABaselinePolicyViewer informs Start-SCuBAConfigApp or New-SCuBAConfig, which produces a config YAML for Invoke-SCuBA. Invoke-SCuBA produces an HTML report and ScubaResults.json for Start-SCuBAConfigAnalyzer, which feeds justified exclusions back to the config tool. Two results files can be compared with Invoke-SCuBADiff.', 'arr');
+    const { svg, box, path, label } = k;
     path('M220,130 L300,130'); label(260, 120, 'look up a policy');
     path('M490,130 L580,130'); label(535, 120, 'config YAML');
     path('M720,112 L860,38'); label(795, 60, 'BaselineReports.html');
@@ -202,25 +224,37 @@
 
   /* ---------- guided wizard ---------- */
   function renderGuided(stepArg) {
-    const steps = SG.GUIDED;
-    if (stepArg === 'plan') return renderPlanPage(SG.buildGuided(state), '#/guided/' + steps.length, 'Change my answers');
-    const n = Math.min(Math.max(parseInt(stepArg, 10) || 1, 1), steps.length);
-    const step = steps[n - 1];
+    const visible = () => SG.GUIDED.filter((s) => !s.when || s.when(state));
+    if (stepArg === 'plan') return renderPlanPage(SG.buildGuided(state), '#/guided/' + visible().length, 'Change my answers');
+    const first = visible();
+    const n = Math.min(Math.max(parseInt(stepArg, 10) || 1, 1), first.length);
+    const step = first[n - 1];
 
-    const stepper = el('ol', { class: 'stepper', 'aria-label': 'Progress' }, steps.map((s, i) => el('li', { class: i + 1 === n ? 'current' : i + 1 < n ? 'past' : '', 'aria-current': i + 1 === n ? 'step' : null }, [
-      el('a', { href: '#/guided/' + (i + 1) }, [el('span', { class: 'dot', text: String(i + 1) }), el('span', { class: 'step-name', text: s.title })]),
-    ])));
+    const stepper = el('ol', { class: 'stepper', 'aria-label': 'Progress' });
+    const eyebrow = el('p', { class: 'eyebrow' });
+    const nav = el('div', { class: 'nav' });
+    // Later steps appear or disappear as answers change, so rebuild the chrome from the current state.
+    const refreshChrome = () => {
+      const steps = visible();
+      const idx = Math.max(steps.indexOf(step), 0);
+      const pos = idx + 1;
+      const last = pos === steps.length;
+      stepper.replaceChildren(...steps.map((s, i) => el('li', { class: i === idx ? 'current' : i < idx ? 'past' : '', 'aria-current': i === idx ? 'step' : null }, [
+        el('a', { href: '#/guided/' + (i + 1) }, [el('span', { class: 'dot', text: String(i + 1) }), el('span', { class: 'step-name', text: s.title })]),
+      ])));
+      eyebrow.textContent = 'Step ' + pos + ' of ' + steps.length;
+      nav.replaceChildren(
+        pos > 1 ? el('a', { class: 'btn', href: '#/guided/' + (pos - 1), text: 'Back' }) : el('a', { class: 'btn', href: '#/', text: 'Home' }),
+        el('a', { class: 'btn btn-primary', href: last ? '#/guided/plan' : '#/guided/' + (pos + 1), text: last ? 'Build my plan' : 'Next' }),
+      );
+    };
 
-    const form = buildForm(step.fields, () => {});
-    const last = n === steps.length;
-    const nav = el('div', { class: 'nav' }, [
-      n > 1 ? el('a', { class: 'btn', href: '#/guided/' + (n - 1), text: 'Back' }) : el('a', { class: 'btn', href: '#/', text: 'Home' }),
-      el('a', { class: 'btn btn-primary', href: last ? '#/guided/plan' : '#/guided/' + (n + 1), text: last ? 'Build my plan' : 'Next' }),
-    ]);
+    const form = buildForm(step.fields, refreshChrome);
+    refreshChrome();
     main.append(
       stepper,
       el('section', { class: 'card' }, [
-        el('p', { class: 'eyebrow', text: 'Step ' + n + ' of ' + steps.length }),
+        eyebrow,
         el('h1', { text: step.title }),
         el('p', { class: 'lead', text: step.intro }),
         form, nav,
@@ -257,11 +291,21 @@
 
   /* ---------- plan rendering ---------- */
   function renderPlanPage(plan, editHref, editLabel) {
+    const fed = el('input', { type: 'checkbox', id: 'plan-federal' });
+    fed.checked = !!state.federal;
+    fed.addEventListener('change', () => {
+      state.federal = fed.checked;
+      save();
+      route();
+      const again = document.getElementById('plan-federal');
+      if (again) again.focus();
+    });
     const bar = el('div', { class: 'toolbar no-print' }, [
       el('a', { class: 'btn', href: editHref, text: editLabel }),
       el('button', { class: 'btn', type: 'button', onclick: () => download('scubagear-plan.md', toMarkdown(plan), 'text/markdown'), text: 'Download plan (.md)' }),
       el('button', { class: 'btn', type: 'button', onclick: () => window.print(), text: 'Print' }),
       el('button', { class: 'btn', type: 'button', onclick: () => { state = {}; done = {}; save(); writeStore(DONE_KEY, done); location.hash = '#/'; }, text: 'Start over' }),
+      el('label', { class: 'toggle', for: 'plan-federal' }, [fed, el('span', { text: 'Federal agency (adds the quarterly CyberScope step)' })]),
     ]);
     main.append(bar, planNode(plan, { prefix: 'g', toc: true }));
     if (plan.jumpTo) {
@@ -323,7 +367,7 @@
   }
 
   function codeNode(text, caption, filename) {
-    const placeholder = /<[A-Za-z][\w-]*>/.test(text);
+    const placeholder = /<[A-Za-z][\w.-]*>|\bTODO\b|vX\.Y\.Z/.test(text);
     const status = el('span', { class: 'copy-status', role: 'status' });
     const btn = el('button', { class: 'btn btn-small no-print', type: 'button', text: 'Copy', 'aria-label': 'Copy command to clipboard' });
     btn.addEventListener('click', async () => {

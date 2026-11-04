@@ -66,7 +66,15 @@
       products,
       productArg: products.length === PRODUCTS.length ? '*' : products.join(', '),
       has: (id) => products.includes(id),
-      auth: s.auth === 'sp' ? 'sp' : 'interactive',
+      connect: s.where === 'connect',
+      connectMode: s.connectMode === 'cisa' ? 'cisa' : 'selfhost',
+      subId: validate('guid', s.subId).value,
+      rgName: validate('rgname', s.rgName).value,
+      email: validate('email', s.email).value,
+      schedule: ['Hour', 'Day', 'Week', 'Month'].includes(s.schedule) ? s.schedule : 'Week',
+      multiTenant: !!s.multiTenant,
+      federal: !!s.federal,
+      auth: s.auth === 'sp' && s.where !== 'connect' ? 'sp' : 'interactive',
       appId: appId.value, thumb: thumb.value, tenant: tenant.value, tenantLabel,
       appIdPh: appId.value || '<app-id>',
       thumbPh: thumb.value || '<certificate-thumbprint>',
@@ -118,7 +126,7 @@
       L.push('AppID: ' + yq(c.appIdPh) + (c.appId ? '' : '  # TODO'));
       L.push('CertificateThumbprint: ' + yq(c.thumbPh) + (c.thumb ? '' : '  # TODO'));
     }
-    if (c.outPath) {
+    if (c.outPath && !c.connect) {
       L.push('');
       L.push('OutPath: ' + yq(c.outPath));
     }
@@ -288,13 +296,14 @@
   function configBlocks(c) {
     const how = c.s.configTool || 'app';
     const yaml = buildYaml(c);
+    const cfgFile = c.connect ? connectFileName(c) : 'scuba-config.yaml';
     const b = [];
     if (how === 'app') {
       b.push(P('The Configuration UI is a Windows desktop app that writes the YAML for you.'));
       b.push(CODE(c.has('aad') ? 'Start-SCuBAConfigApp -Online' + (c.env !== 'commercial' ? ' -M365Environment ' + c.env : '') : 'Start-SCuBAConfigApp', c.has('aad') ? '`-Online` signs in to Microsoft Graph so you can search for users and groups to exclude.' : null));
       b.push(STEPS(['Enter your organization name and unit.', 'Choose your products.', 'Add exclusions, annotations, and omissions as needed.', 'Review the preview, save the file, and optionally run ScubaGear from the app.']));
       b.push(P('Want a head start? Save the generated file below and import it:'));
-      b.push(CODE('Start-SCuBAConfigApp -ConfigFilePath ' + psq('.\\scuba-config.yaml')));
+      b.push(CODE('Start-SCuBAConfigApp -ConfigFilePath ' + psq('.\\' + cfgFile)));
       b.push(LINKS([link('configuration/scubaconfigapp.md', 'Configuration UI guide'), link('configuration/scubaconfigapp-walkthrough.md', 'UI walkthrough')]));
     } else if (how === 'cli') {
       b.push(P('`New-SCuBAConfig` generates a template and works on any OS:'));
@@ -304,10 +313,10 @@
       b.push(CODE(cmd('New-SCuBAConfig', parts), 'Creates SampleConfig.yaml. Edit it by hand.'));
       b.push(LINKS([link('configuration/configuration.md', 'Configuration file reference')]));
     } else {
-      b.push(P('Save the generated file below as `scuba-config.yaml` and edit it by hand.'));
+      b.push(P('Save the generated file below as `' + cfgFile + '` and edit it by hand.'));
       b.push(LINKS([link('configuration/configuration.md', 'Configuration file reference')]));
     }
-    b.push({ type: 'file', filename: 'scuba-config.yaml', text: yaml, caption: 'Generated starting configuration' });
+    b.push({ type: 'file', filename: cfgFile, text: yaml, caption: 'Generated starting configuration' });
     if (c.users.length || c.groups.length) {
       b.push(NOTE('warn', 'The break-glass users and groups you entered are excluded from every Conditional Access policy check listed (and the role-exclusion check MS.AAD.7.4v1). Exclusions weaken the assessment, so only keep them if your risk acceptance process approves them.'));
     } else if (c.has('aad')) {
@@ -381,8 +390,203 @@
     ];
   }
 
+  /* ---------- ScubaConnect ---------- */
+  const CONNECT_REPO = 'https://github.com/cisagov/ScubaConnect';
+  const connectFileName = (c) => (c.tenant || 'contoso.onmicrosoft.com') + '.yaml';
+  const connectLink = (path, label) => ({ label, url: CONNECT_REPO + '/blob/main/' + path });
+  const SCHEDULE_WORDS = { Hour: 'every hour', Day: 'every day', Week: 'every week', Month: 'every month' };
+
+  function connectEnvNote(c) {
+    return c.env === 'dod' ? NOTE('warn', 'ScubaConnect (GearConnect) supports Commercial, GCC, and GCC High. DoD is not listed, so choose another option or confirm with CISA.') : null;
+  }
+
+  function connectToolsSection(c) {
+    return SECTION('tools', 'Install ScubaGear for the config tools', [
+      P('ScubaConnect does the scanning, but the tools that build your YAML config (`Start-SCuBAConfigApp`, `New-SCuBAConfig`, `Start-SCuBAConfigAnalyzer`) live in the ScubaGear module. Install it on a Windows computer.'),
+      ps51Note(),
+      ...installBlocks(c),
+      CODE('Install-ScubaDependencies'),
+    ]);
+  }
+
+  function connectConfigSection(c) {
+    const blocks = configBlocks(c);
+    blocks.push(NOTE(c.tenant ? 'info' : 'warn', 'ScubaConnect looks for a file named `<tenant_fqdn>.yaml`, for example `contoso.onmicrosoft.com.yaml`. ' + (c.tenant ? 'The generated file is already named `' + connectFileName(c) + '`.' : 'Rename your file to match your tenant\'s initial domain, or enter it in step 1 to get the right name.')));
+    return SECTION('config', 'Create your configuration file', blocks);
+  }
+
+  function installAppSection(c, appIdPh, intro) {
+    return SECTION('installapp', 'Install the ScubaConnect app in your tenant', [
+      connectEnvNote(c),
+      P(intro),
+      NOTE('info', 'Run it as a **Global Administrator**, or as a Privileged Role Administrator who is also a Fabric Administrator.'),
+      STEPS(['Download the signed `Install-GearConnect.ps1` from the [ScubaConnect releases page](https://github.com/cisagov/ScubaConnect/releases).', 'Open PowerShell and run it from the folder where you saved it.']),
+      CODE(cmd('.\\Install-GearConnect.ps1', ['-AppId ' + appIdPh, '-M365Environment ' + (c.env === 'dod' ? 'gcc' : c.env)]), 'The script defaults to `gcc` if you omit `-M365Environment`. Valid values are `commercial`, `gcc`, and `gcchigh`.'),
+      P('The script will:'),
+      LIST(['Install the PowerShell dependencies it needs on the local machine.', 'Open a consent page so you can add the ScubaConnect application with the permissions ScubaGear needs.', 'Grant the application the Global Reader role.', 'Register the application as a Power Apps admin.', 'Create a security group for the service principal and guide you to grant that group read-only Power BI access.']),
+      LINKS([connectLink('m365/README.adoc#onboard', 'Onboarding a tenant')]),
+    ].filter(Boolean));
+  }
+
+  function localTestBlocks(c) {
+    return [
+      P('**Optional: test your config locally.** You can run ScubaGear yourself with the same YAML to preview results before ScubaConnect scans, and to use the Config Analyzer on a results file.'),
+      CODE('Invoke-SCuBA -ConfigFilePath ' + psq('.\\' + connectFileName(c)), 'Interactive sign-in. Results appear in a timestamped folder.'),
+      CODE('Start-SCuBAConfigAnalyzer', 'Click **Load Results JSON...** and choose a `ScubaResults_<uuid>.json` file. Keep only the exclusions you can justify, add them to your YAML, and upload the YAML again.'),
+      LINKS([link('configuration/scubaconfiganalyzer.md', 'Config Analyzer')]),
+    ];
+  }
+
+  function failedHighlight(s) {
+    return s.ranBefore === 'failed' ? { highlight: 'You said you already have failing results. Start here.' } : null;
+  }
+
+  function cyberscopeSection(mode) {
+    const collect = mode === 'selfhost'
+      ? 'Download the most recent `ScubaResults.json` from your output storage container.'
+      : 'Locate `ScubaResults_<uuid>.json` (and `ActionPlan.csv`) from your most recent assessment in its output folder.';
+    return SECTION('cyberscope', 'Submit to CyberScope every quarter (Federal agencies)', [
+      NOTE('warn', 'As a Federal agency you must also **submit your results to CyberScope at the end of every calendar quarter**. This applies whether you run the ScubaGear module on a Windows device or self-hosted ScubaConnect.'),
+      TABLE(['Quarter', 'Months covered'], [['Q1', 'January - March'], ['Q2', 'April - June'], ['Q3', 'July - September'], ['Q4', 'October - December']]),
+      STEPS([collect, 'Sign in to the [CISA Registration Portal](https://access.cisa.gov/) and open CyberScope.', 'Submit the results for the quarter.', 'Record any remediation plans for failing controls (annotations in your config, or `ActionPlan.csv`).']),
+      NOTE('info', 'Confirm the exact submission format and due dates with CISA at scuba@cisa.dhs.gov, since they can change.'),
+    ]);
+  }
+
+  function buildCisa(c) {
+    return [
+      SECTION('about', 'How CISA-hosted ScubaConnect works', [
+        NOTE('warn', 'CISA-hosted ScubaConnect is still being defined. Confirm the current onboarding steps, your application ID, and timelines with CISA at scuba@cisa.dhs.gov before you begin.'),
+        P('CISA runs ScubaConnect from its own tenant using a multi-tenant service principal. It connects to your tenant, scans it on a schedule, and uploads the results to its hosted database, CyberScope. You do not deploy any infrastructure. You do three things:'),
+        STEPS(['Build your ScubaGear YAML config.', 'Register with CyberScope and upload the YAML to onboard.', 'Install the ScubaConnect app in your tenant with `Install-GearConnect.ps1`.']),
+      ]),
+      connectToolsSection(c),
+      connectConfigSection(c),
+      SECTION('register', 'Register with CyberScope and upload your config', [
+        STEPS(['Go to the [CISA Registration Portal](https://access.cisa.gov/) and register for CyberScope.', 'Upload your YAML file to onboard your tenant.', 'Get the **application ID** for the ScubaConnect app. CISA provides it along with the install script.']),
+        NOTE('info', 'Whenever you change your config, upload the new YAML again so the next scan uses it.'),
+      ]),
+      installAppSection(c, '<cisa-provided-app-id>', 'This registers CISA\'s multi-tenant ScubaConnect application in your tenant so CISA\'s scans can read your configuration.'),
+      SECTION('results', 'Review results and keep improving', [
+        P('Scheduled scans upload results to CyberScope. How results and reports are returned to your team, such as an emailed HTML report, is still being defined. Ask CISA how you will receive them.'),
+        c.federal ? NOTE('info', 'Because CISA uploads your results to CyberScope for you, the quarterly manual submission needed for the module and self-hosted options may not apply. Confirm with CISA during onboarding.') : null,
+        ...localTestBlocks(c),
+      ].filter(Boolean), failedHighlight(c.s)),
+      SECTION('offboard', 'Offboarding', [
+        P('A tenant admin can stop ScubaConnect at any time by deleting the application: Azure portal > Enterprise applications > ScubaConnect > Properties > Delete. Ask CISA to remove your config from the service as well.'),
+        LINKS([connectLink('m365/README.adoc#_frequently_asked_questions', 'ScubaConnect FAQ')]),
+      ]),
+    ];
+  }
+
+  function tfProvider(c) {
+    const env = c.env === 'gcchigh' ? 'usgovernment' : 'public';
+    return [
+      'terraform {',
+      '  required_version = ">= 1.1.0"',
+      '}',
+      '',
+      'provider "azurerm" {',
+      '  subscription_id = "' + (c.subId || 'TODO-your-subscription-uuid') + '"',
+      '  environment     = "' + env + '"',
+      '  features {}',
+      '}',
+      '',
+      'provider "azuread" {',
+      '  environment = "' + env + '"',
+      '}',
+      '',
+    ].join('\n');
+  }
+
+  function tfMain(c) {
+    const L = [
+      'module "scuba_connect" {',
+      '  # TODO: replace vX.Y.Z with the latest tag from https://github.com/cisagov/ScubaConnect/releases',
+      '  source = "github.com/cisagov/ScubaConnect.git//m365/terraform?ref=vX.Y.Z"',
+      '',
+      '  contact_emails      = ["' + (c.email || 'TODO@example.com') + '"]',
+      '  resource_group_name = "' + (c.rgName || 'TODO-myresourcegroup') + '"',
+      '  schedule_interval   = "' + c.schedule + '"',
+      '  tenants_dir_path    = "./tenants"',
+    ];
+    if (c.multiTenant) L.push('  app_multi_tenant    = true');
+    L.push('}', '');
+    return L.join('\n');
+  }
+
+  function buildSelfHost(c) {
+    const cfg = connectFileName(c);
+    return [
+      SECTION('about', 'How self-hosted ScubaConnect works', [
+        P('You deploy ScubaConnect into your own Azure subscription with Terraform. An Azure container runs ScubaGear on a schedule, reads your YAML config from blob storage, and writes `ScubaResults.json` back to blob storage. You still build and maintain the YAML.'),
+        STEPS(['Install Terraform and the Azure CLI, then deploy with Terraform.', 'Install the ScubaConnect app in each tenant you want to scan.', 'Upload one YAML config per tenant.', 'Review the results and refine the config.']),
+        c.env === 'gcchigh' ? NOTE('info', 'GCC High is separate from Commercial and GCC. Deploy ScubaConnect in the same environment as the tenants you scan.') : null,
+        connectEnvNote(c),
+      ].filter(Boolean)),
+      SECTION('prereq', 'Install the prerequisites', [
+        LIST(['[Terraform](https://developer.hashicorp.com/terraform/install)', '[Azure CLI](https://learn.microsoft.com/en-us/cli/azure/get-started-with-azure-cli), then sign in', 'An account with administrator privileges for the Azure subscription']),
+        CODE('az login\naz account show', 'Copy the subscription ID from `az account show`.'),
+      ]),
+      connectToolsSection(c),
+      connectConfigSection(c),
+      SECTION('deploy', 'Deploy with Terraform', [
+        STEPS(['Copy the `m365/example_deployment` folder from the [ScubaConnect repo](https://github.com/cisagov/ScubaConnect/tree/main/m365/example_deployment) to a working folder. This is your deployment directory.', 'Replace its `provider.tf` and `main.tf` with the files below, filling in every `TODO`.', 'Run the commands.']),
+        { type: 'file', filename: 'provider.tf', text: tfProvider(c), caption: 'Set `subscription_id` from `az account show`. GCC High uses `usgovernment` in both provider blocks.' },
+        { type: 'file', filename: 'main.tf', text: tfMain(c), caption: c.multiTenant ? '`app_multi_tenant = true` lets other tenants install the app.' : 'The app is limited to this tenant. Set `app_multi_tenant = true` to scan other tenants too.' },
+        CODE('terraform init\nterraform apply', 'Review the plan and type `yes`. The `ref` in `main.tf` should be a release tag.'),
+        CODE('terraform output app_id\nterraform output input_storage_container_url', 'You need `app_id` to install the app in your tenants.'),
+        NOTE('info', 'For production, also configure the remote state backend (`backend "azurerm"`) in `provider.tf`.'),
+        LINKS([connectLink('m365/README.adoc#deploy', 'Deploying with Terraform'), connectLink('m365/README.adoc#terraform-variables', 'All Terraform variables')]),
+      ]),
+      installAppSection(c, '<app_id-from-terraform>', 'Run this even if you scan only your own tenant. For more tenants, each tenant\'s admin repeats it.'),
+      SECTION('upload', 'Upload your config', [
+        P('Name the file `<tenant_fqdn>.yaml` (yours: `' + cfg + '`). Then do either of these:'),
+        LIST(['Put it in the `tenants/` folder of your deployment directory and run `terraform apply` again.', 'Upload it directly to the container shown by `terraform output input_storage_container_url`.']),
+        NOTE('info', 'Use one file per tenant. Uploading a changed file is how you change what ScubaConnect checks.'),
+      ]),
+      SECTION('run', 'Schedule, run, and monitor', [
+        P('Scans run ' + SCHEDULE_WORDS[c.schedule] + ', starting from when you deployed. To check or change the schedule, open Azure Portal > `scubaconnect-runner-automation-x` > Shared Resources > Schedules.'),
+        P('For an on-demand scan, start the `scubaconnect-adhoc-container` container instance in the Azure portal and watch **Settings > Containers > Logs**.'),
+        P('Logs go to the `scubaconnect-monitor-loganalytics` workspace, which has saved searches "scubaconnect Container Logs (7d)" and "scubaconnect Last Run Output". An email goes to your contact address if a run fails.'),
+        LINKS([connectLink('m365/README.adoc#_logging_alerts', 'Logging and alerts')]),
+      ]),
+      SECTION('results', 'Review results and fix failures', [
+        P('Results are written to the output storage container (`terraform output output_storage_container_urls`). Download a `ScubaResults.json` and work the same loop as a local run:'),
+        STEPS(['Open the results in the Config Analyzer (**Load Results JSON...**).', 'Keep only the exclusions you can justify and add them to your YAML.', 'Upload the updated YAML, then wait for the next scan or start the ad-hoc container.']),
+        CODE('Start-SCuBAConfigAnalyzer'),
+        CODE(cmd('Invoke-SCuBADiff', ["-BeforePath '.\\before\\ScubaResults.json'", "-AfterPath '.\\after\\ScubaResults.json'"]), 'Compare two scans to see what changed.'),
+        DETAILS('Optional: Power BI report', [
+          P('ScubaConnect includes a Power BI report for history across scans and tenants. Automated refresh works in Commercial and GCC High; GCC uses manual updates with Power BI Desktop.'),
+          LINKS([connectLink('m365/powerbi/README.md', 'Power BI integration steps')]),
+        ]),
+        LINKS([link('configuration/scubaconfiganalyzer.md', 'Config Analyzer'), link('execution/diff.md', 'Invoke-SCuBADiff')]),
+      ], failedHighlight(c.s)),
+      ...(c.federal ? [cyberscopeSection('selfhost')] : []),
+      SECTION('maintain', 'Maintenance', [
+        LIST(['The certificate ScubaConnect uses expires after one year. An email arrives 60 days before; running `terraform apply` renews it.', 'The container image updates itself, so no action is needed for new ScubaGear versions.', 'For new Terraform releases, change the `ref` in `main.tf`, read the release notes, then run:']),
+        CODE('terraform init -upgrade\nterraform apply'),
+        P('To offboard a tenant, delete the app under Enterprise applications > ScubaConnect, then delete its YAML from the input container.'),
+        LINKS([connectLink('m365/README.adoc#_maintenance', 'Maintenance'), connectLink('m365/README.adoc#_frequently_asked_questions', 'FAQ')]),
+      ]),
+    ];
+  }
+
+  function buildConnect(s) {
+    const c = ctx(s);
+    const cisa = c.connectMode === 'cisa';
+    return {
+      title: 'Your ScubaConnect plan',
+      intro: 'Mode: ' + (cisa ? 'CISA-hosted (CyberScope)' : 'self-hosted in your Azure subscription') + '. Environment: ' + ENVIRONMENTS.find((e) => e.value === c.env).label + '. Products: ' + c.productArg + '.',
+      sections: cisa ? buildCisa(c) : buildSelfHost(c),
+      files: [{ filename: connectFileName(c), text: buildYaml(c) }],
+      jumpTo: s.ranBefore === 'failed' ? 'results' : null,
+    };
+  }
+
   /* ---------- guided plan ---------- */
   function buildGuided(s) {
+    if (s.where === 'connect') return buildConnect(s);
     const c = ctx(s);
     const sections = [];
     const failed = s.ranBefore === 'failed';
@@ -406,6 +610,7 @@
     sections.push(SECTION('config', 'Create your configuration file', configBlocks(c)));
     sections.push(SECTION('run', 'Run ScubaGear', runBlocks(c)));
     sections.push(SECTION('results', 'Review results and fix failures', resultsBlocks(c), failed ? { highlight: 'You said you already have failing results. Start here.' } : null));
+    if (c.federal) sections.push(cyberscopeSection('local'));
     sections.push(SECTION('iterate', 'Track progress over time', iterateBlocks(c)));
     sections.push(SECTION('trouble', 'If something goes wrong', troubleBlocks()));
 
@@ -431,7 +636,7 @@
     ] },
     appId: { key: 'appId', type: 'text', kind: 'guid', label: 'Application (client) ID', help: 'Optional. Leave blank to get a placeholder.', placeholder: '00000000-0000-0000-0000-000000000000', when: (s) => s.auth === 'sp' },
     thumb: { key: 'thumb', type: 'text', kind: 'thumb', label: 'Certificate thumbprint', help: 'Optional. 40 hex characters.', placeholder: 'FEDCBA9876543210FEDCBA9876543210FEDCBA98', when: (s) => s.auth === 'sp' },
-    tenant: { key: 'tenant', type: 'text', kind: 'domain', label: 'Tenant initial domain', help: 'Of the form contoso.onmicrosoft.com. Required for unattended runs.', placeholder: 'contoso.onmicrosoft.com' },
+    tenant: { key: 'tenant', type: 'text', kind: 'domain', label: 'Tenant initial domain', help: 'Of the form contoso.onmicrosoft.com. Required for unattended runs, and ScubaConnect uses it to name your config file.', placeholder: 'contoso.onmicrosoft.com' },
     outPath: { key: 'outPath', type: 'text', kind: 'path', label: 'Output folder (optional)', help: 'Defaults to a timestamped folder in the current directory.', placeholder: 'C:\\ScubaResults' },
     dark: { key: 'dark', type: 'toggle', label: 'Dark mode HTML report' },
     quiet: { key: 'quiet', type: 'toggle', label: 'Do not open the report in a browser (-Quiet)' },
@@ -441,18 +646,36 @@
   const GUIDED = [
     { id: 'tenant', title: 'Your tenant', intro: 'ScubaGear needs to know which cloud your Microsoft 365 tenant lives in.', fields: [F.env, F.tenant] },
     { id: 'products', title: 'Products', intro: 'Pick the baselines your agency needs to assess.', fields: [F.products] },
-    { id: 'machine', title: 'This computer', intro: 'Tell us how ScubaGear gets onto your machine.', fields: [
-      { key: 'install', type: 'cards', label: 'ScubaGear installation', def: 'psgallery', options: [
+    { id: 'machine', title: 'How will you run ScubaGear?', intro: 'Run it yourself on a Windows computer, or let ScubaConnect automate the scans. Either way you need a YAML config, and the plan walks you through it.', fields: [
+      { key: 'where', type: 'cards', label: 'Where will ScubaGear run?', def: 'local', options: [
+        { value: 'local', label: 'On my own Windows computer', desc: 'You install ScubaGear and run Invoke-SCuBA when you want results.' },
+        { value: 'connect', label: 'Automated with ScubaConnect', desc: 'A container runs ScubaGear for you on a schedule. You still build and maintain the YAML config.' },
+      ] },
+      { key: 'install', type: 'cards', label: 'How do you get ScubaGear?', def: 'psgallery', when: (s) => s.where !== 'connect', options: [
         { value: 'psgallery', label: 'Install from PowerShell Gallery', desc: 'Recommended.' },
         { value: 'github', label: 'Download from GitHub', desc: 'Use when PSGallery is not allowed.' },
         { value: 'installed', label: 'It is already installed', desc: 'Just check for updates.' },
       ] },
-      { key: 'network', type: 'toggle', label: 'Outbound traffic is restricted by a firewall, proxy, or gateway', help: 'You will get a list of hosts to allow.' },
+      { key: 'network', type: 'toggle', label: 'Outbound traffic is restricted by a firewall, proxy, or gateway', help: 'You will get a list of hosts to allow.', when: (s) => s.where !== 'connect' },
+      { key: 'connectMode', type: 'cards', label: 'Who hosts ScubaConnect?', def: 'selfhost', when: (s) => s.where === 'connect', options: [
+        { value: 'cisa', label: 'CISA-hosted (CyberScope)', desc: 'CISA scans your tenant with its multi-tenant app. You submit your YAML to Cyberscope and install the app. This process is still being defined.' },
+        { value: 'selfhost', label: 'Self-hosted in my Azure subscription', desc: 'You deploy ScubaConnect with Terraform. Scans run on your schedule and results stay in your Azure storage.' },
+      ] },
     ] },
-    { id: 'signin', title: 'Sign-in method', intro: 'Choose between a person signing in and an unattended service principal.', fields: [F.auth, F.spHave, F.appId, F.thumb] },
+    { id: 'connect', title: 'ScubaConnect settings', intro: 'These fill in the Terraform files for your Azure deployment. Everything is optional; blanks become TODO placeholders.', when: (s) => s.where === 'connect' && s.connectMode !== 'cisa', fields: [
+      { key: 'subId', type: 'text', kind: 'guid', label: 'Azure subscription ID', help: 'Run az account show to find it.', placeholder: '00000000-0000-0000-0000-000000000000' },
+      { key: 'rgName', type: 'text', kind: 'rgname', label: 'Resource group name (will be created)', placeholder: 'rg-scubaconnect' },
+      { key: 'email', type: 'text', kind: 'email', label: 'Contact email for failures and certificate expiry', placeholder: 'secops@agency.gov' },
+      { key: 'schedule', type: 'cards', label: 'How often should ScubaConnect scan?', def: 'Week', options: [
+        { value: 'Hour', label: 'Hourly', desc: '' }, { value: 'Day', label: 'Daily', desc: '' }, { value: 'Week', label: 'Weekly', desc: 'Default.' }, { value: 'Month', label: 'Monthly', desc: '' },
+      ] },
+      { key: 'multiTenant', type: 'toggle', label: 'Also scan other tenants (multi-tenant app)', help: 'Leave off to scan only the tenant you deploy in.' },
+    ] },
+    { id: 'signin', title: 'Sign-in method', intro: 'Choose between a person signing in and an unattended service principal.', when: (s) => s.where !== 'connect', fields: [F.auth, F.spHave, F.appId, F.thumb] },
     { id: 'org', title: 'Organization', intro: 'These are written to the config file and used in BOD submissions.', fields: [
       { key: 'orgName', type: 'text', kind: 'any', label: 'Organization name', placeholder: 'Department of Example' },
       { key: 'orgUnit', type: 'text', kind: 'any', label: 'Organizational unit name', placeholder: 'Subdepartment of Example' },
+      { key: 'federal', type: 'toggle', label: 'We are a Federal Civilian Executive Branch agency (BOD 25-01)', help: 'Adds a step for the quarterly CyberScope submission.' },
     ] },
     { id: 'config', title: 'Configuration', intro: 'Most failures come from legitimate exclusions such as break-glass accounts. You can add them now or let the Config Analyzer find them after your first run.', fields: [
       { key: 'configTool', type: 'cards', label: 'How do you want to build the config file?', def: 'app', options: [
@@ -467,7 +690,7 @@
         { value: 'failed', label: 'I ran ScubaGear and have failures', desc: 'Jump straight to fixing them.' },
       ] },
     ] },
-    { id: 'output', title: 'Run options', intro: 'Optional switches for the run.', fields: [F.outPath, F.dark, F.quiet, F.transcript] },
+    { id: 'output', title: 'Run options', intro: 'Optional switches for the run.', when: (s) => s.where !== 'connect', fields: [F.outPath, F.dark, F.quiet, F.transcript] },
   ];
 
   /* ---------- quick-answer recipes ---------- */
@@ -623,6 +846,22 @@
           SECTION('run', 'Run it', [CODE(cmd('Invoke-SCuBA', ['-AppID $NewSP.AppID', '-CertificateThumbprint $NewSP.CertThumbprint', '-ProductNames ' + c.productArg, '-Organization ' + c.tenantPh])), NOTE('info', 'The certificate lives in `Cert:\\CurrentUser\\My`, so schedule the job as the same user on the same machine. Default certificate lifetime is 6 months, so plan rotation.')]),
           SECTION('yaml', 'Optional: use a config file', [{ type: 'file', filename: 'scuba-config.yaml', text: cfg, caption: 'Includes your Organization, AppID, and thumbprint placeholders' }]),
         ], files: [{ filename: 'scuba-config.yaml', text: cfg }] };
+      },
+    },
+    {
+      id: 'connect', title: 'I want ScubaConnect to run scans for me', cmd: 'Install-GearConnect.ps1',
+      fields: [
+        { key: 'connectMode', type: 'cards', label: 'Who hosts ScubaConnect?', def: 'selfhost', options: [
+          { value: 'cisa', label: 'CISA-hosted (CyberScope)', desc: 'Still being defined.' },
+          { value: 'selfhost', label: 'Self-hosted in my Azure subscription', desc: 'Terraform deployment.' }] },
+        F.env, F.products, F.tenant,
+        { key: 'subId', type: 'text', kind: 'guid', label: 'Azure subscription ID', placeholder: '00000000-0000-0000-0000-000000000000', when: (s) => s.connectMode !== 'cisa' },
+        { key: 'rgName', type: 'text', kind: 'rgname', label: 'Resource group name', placeholder: 'rg-scubaconnect', when: (s) => s.connectMode !== 'cisa' },
+        { key: 'email', type: 'text', kind: 'email', label: 'Contact email', placeholder: 'secops@agency.gov', when: (s) => s.connectMode !== 'cisa' },
+        { key: 'multiTenant', type: 'toggle', label: 'Also scan other tenants (multi-tenant app)', when: (s) => s.connectMode !== 'cisa' }],
+      build(s) {
+        const plan = buildConnect(Object.assign({}, s, { where: 'connect' }));
+        return { title: plan.title, sections: plan.sections };
       },
     },
     {

@@ -24,6 +24,8 @@
   const DOMAIN = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/i;
   const LABEL = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/i;
   const BAD_PATH = /[<>"|?*\u0000-\u001F]/;
+  const EMAIL = /^[^\s@"\\]+@[^\s@"\\]+\.[A-Za-z]{2,}$/;
+  const RG_NAME = /^[A-Za-z0-9_().-]{1,90}$/;
 
   const VALIDATORS = {
     any: (v) => v.length > 0 && v.length <= 200,
@@ -32,6 +34,8 @@
     domain: (v) => DOMAIN.test(v),
     label: (v) => LABEL.test(v),
     path: (v) => v.length > 0 && v.length <= 240 && !BAD_PATH.test(v),
+    email: (v) => v.length <= 120 && EMAIL.test(v),
+    rgname: (v) => RG_NAME.test(v),
   };
 
   const MESSAGES = {
@@ -41,6 +45,8 @@
     domain: 'Expected a domain like contoso.onmicrosoft.com.',
     label: 'Expected just the tenant name, like contoso.',
     path: 'That does not look like a valid Windows path.',
+    email: 'Expected an email address like name@agency.gov.',
+    rgname: 'Use letters, numbers, hyphens, underscores, periods, or parentheses (up to 90 characters).',
     any: 'Please shorten this value.',
   };
 
