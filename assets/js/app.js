@@ -41,6 +41,7 @@
   /* ---------- home ---------- */
   function renderHome() {
     const hero = el('section', { class: 'hero' }, [
+      el('img', { class: 'hero-banner', src: 'assets/images/SCuBA%20GitHub%20Graphic%20v6-05.png', alt: 'ScubaGear, a CISA project' }),
       el('h1', { text: 'Get ScubaGear running, and passing' }),
       inline(el('p', { class: 'lead' }), 'Answer a few questions about your tenant and this wizard tells you **what to install, what to configure, and exactly what to run**: from first install through fixing failed controls for CISA BOD 25-01.'),
       el('div', { class: 'hero-actions' }, [
@@ -48,15 +49,6 @@
         el('a', { class: 'btn', href: '#/quick', text: 'I just need one thing' }),
       ]),
       el('p', { class: 'small muted', text: 'Runs entirely in your browser. Nothing you type is sent anywhere.' }),
-    ]);
-
-    const flow = el('section', { class: 'card', 'aria-labelledby': 'flow-h' }, [
-      el('h2', { id: 'flow-h', text: 'How the tools fit together' }),
-      el('p', { class: 'muted', text: 'Most people move left to right, then loop back through the analyzer until failures are explained.' }),
-      toolchainSvg(),
-      el('h3', { text: 'Prefer automation? Add ScubaConnect' }),
-      el('p', { class: 'muted', text: 'ScubaConnect runs ScubaGear for you on a schedule, hosted by CISA or in your own Azure subscription. You still build and maintain the YAML config.' }),
-      automationSvg(),
     ]);
 
     const grid = el('div', { class: 'grid' }, SG.RECIPES.map((r) => el('a', { class: 'tile', href: '#/q/' + r.id }, [
@@ -78,7 +70,7 @@
         'Exclusions, omissions, and annotations must be approved by your organization\'s risk process.',
       ]),
     ]);
-    main.append(hero, flow, quick, bod);
+    main.append(hero, quick, bod);
   }
 
   function list(items) {
@@ -148,6 +140,11 @@
   /* ---------- form fields ---------- */
   function fieldNode(f, onChange) {
     const wrap = el('div', { class: 'field field-' + f.type, 'data-key': f.key });
+    if (f.type === 'diagram') {
+      const svg = f.diagram === 'automation' ? automationSvg() : toolchainSvg();
+      wrap.append(el('figure', { class: 'diagram' }, [svg, el('figcaption', { class: 'muted', text: f.label })]));
+      return wrap;
+    }
     const helpId = 'help-' + f.key;
     const help = f.help ? el('p', { class: 'help', id: helpId, text: f.help }) : null;
 

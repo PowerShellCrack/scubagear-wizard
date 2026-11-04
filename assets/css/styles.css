@@ -91,7 +91,8 @@ main { max-width: 1100px; margin: 0 auto; padding: 1.5rem clamp(1rem, 4vw, 2rem)
 .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 1.25rem 1.5rem; margin: 0 0 1.25rem; }
 
 /* Hero */
-.hero { padding: 2rem 0 1.5rem; }
+.hero { padding: 1rem 0 1.5rem; }
+.hero-banner { display: block; width: 100%; height: auto; max-height: 260px; object-fit: cover; border-radius: var(--radius); margin: 0 0 1.5rem; }
 .hero-actions { display: flex; flex-wrap: wrap; gap: 0.75rem; margin: 1.25rem 0 0.75rem; }
 
 /* Buttons */
@@ -120,6 +121,8 @@ main { max-width: 1100px; margin: 0 auto; padding: 1.5rem clamp(1rem, 4vw, 2rem)
 
 /* Toolchain diagram */
 .toolchain { width: 100%; height: auto; display: block; }
+.diagram { margin: 0; padding: 0.75rem; border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg); }
+.diagram figcaption { margin-top: 0.5rem; font-size: 0.9rem; }
 .tc-box { fill: var(--accent); stroke: var(--primary); stroke-width: 1.5; }
 .tc-dashed { stroke-dasharray: 5 4; }
 .card h3 { margin: 1.25rem 0 0.25rem; font-size: 1.1rem; }

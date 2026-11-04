@@ -661,6 +661,8 @@
         { value: 'cisa', label: 'CISA-hosted (CyberScope)', desc: 'CISA scans your tenant with its multi-tenant app. You submit your YAML to Cyberscope and install the app. This process is still being defined.' },
         { value: 'selfhost', label: 'Self-hosted in my Azure subscription', desc: 'You deploy ScubaConnect with Terraform. Scans run on your schedule and results stay in your Azure storage.' },
       ] },
+      { key: 'diagramLocal', type: 'diagram', diagram: 'toolchain', label: 'How the tools fit together. Most people move left to right, then loop through the analyzer until failures are explained.', when: (s) => s.where !== 'connect' },
+      { key: 'diagramConnect', type: 'diagram', diagram: 'automation', label: 'ScubaConnect runs ScubaGear for you on a schedule, hosted by CISA or in your own Azure subscription. You still build and maintain the YAML config.', when: (s) => s.where === 'connect' },
     ] },
     { id: 'connect', title: 'ScubaConnect settings', intro: 'These fill in the Terraform files for your Azure deployment. Everything is optional; blanks become TODO placeholders.', when: (s) => s.where === 'connect' && s.connectMode !== 'cisa', fields: [
       { key: 'subId', type: 'text', kind: 'guid', label: 'Azure subscription ID', help: 'Run az account show to find it.', placeholder: '00000000-0000-0000-0000-000000000000' },
